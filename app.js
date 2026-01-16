@@ -112,7 +112,7 @@ const CodeEditor = ({ value, onChange, onRun }) => {
 
 const JavaScriptNotebook = () => {
   const [blocks, setBlocks] = useState([
-    { id: 1, code: '// Write your JavaScript code here\nconst result = 2 + 2;\nresult;', output: null, error: null, hasRun: false, execCount: 0 }
+    { id: 1, code: '// Write your JavaScript code here\nconst result = 2 + 2;\nconsole.log("Hello from console!");\nresult;', output: null, logs: [], error: null, hasRun: false, execCount: 0 }
   ]);
   const sharedScope = useRef({});
   const nextId = useRef(2);
@@ -129,12 +129,25 @@ const JavaScriptNotebook = () => {
   const executeCode = (blockId) => {
     setBlocks(prev => prev.map(block => {
       if (block.id === blockId) {
+        const capturedLogs = [];
+        const originalLog = console.log;
+        
+        // Temporary console.log override
+        const tempConsole = {
+          log: (...args) => {
+            capturedLogs.push(args.map(arg => 
+              typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+            ).join(' '));
+            originalLog(...args);
+          }
+        };
+
         try {
           const allVars = Object.keys(sharedScope.current);
           const newVars = extractVariableNames(block.code);
           
           // Execute in a clean context with shared scope
-          const result = (function() {
+          const result = (function(console) {
             // Import all shared variables into this scope
             for (let key in sharedScope.current) {
               eval(`var ${key} = sharedScope.current['${key}'];`);
@@ -159,11 +172,11 @@ const JavaScriptNotebook = () => {
             });
             
             return evalResult;
-          })();
+          })(tempConsole);
           
-          return { ...block, output: result, error: null, hasRun: true, lastRun: Date.now(), execCount: (block.execCount || 0) + 1 };
+          return { ...block, output: result, logs: capturedLogs, error: null, hasRun: true, lastRun: Date.now(), execCount: (block.execCount || 0) + 1 };
         } catch (error) {
-          return { ...block, output: null, error: error.message, hasRun: true, lastRun: Date.now(), execCount: (block.execCount || 0) + 1 };
+          return { ...block, output: null, logs: capturedLogs, error: error.message, hasRun: true, lastRun: Date.now(), execCount: (block.execCount || 0) + 1 };
         }
       }
       return block;
@@ -194,13 +207,24 @@ const JavaScriptNotebook = () => {
   };
 
   const clearAllOutputs = () => {
-    setBlocks(prev => prev.map(block => ({ ...block, output: null, error: null, hasRun: false })));
+    setBlocks(prev => prev.map(block => ({ ...block, output: null, logs: [], error: null, hasRun: false })));
     sharedScope.current = {};
   };
 
   const runAllBlocks = () => {
     sharedScope.current = {};
     setBlocks(prev => prev.map(block => {
+      const capturedLogs = [];
+      const originalLog = console.log;
+      const tempConsole = {
+        log: (...args) => {
+          capturedLogs.push(args.map(arg => 
+            typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+          ).join(' '));
+          originalLog(...args);
+        }
+      };
+
       try {
         const setupCode = Object.keys(sharedScope.current)
           .map(key => `var ${key} = __sharedScope['${key}'];`)
@@ -211,21 +235,21 @@ const JavaScriptNotebook = () => {
           .map(name => `try { __sharedScope['${name}'] = ${name}; } catch(e) {}`)
           .join('\n');
         
-        const result = (function(__sharedScope) {
+        const result = (function(__sharedScope, console) {
           const code = setupCode + '\n' + block.code;
           const wrappedCode = code.replace(/\b(const|let)\b/g, 'var');
           return eval(wrappedCode);
-        })(sharedScope.current);
+        })(sharedScope.current, tempConsole);
         
         // Capture variables
-        (function(__sharedScope) {
+        (function(__sharedScope, console) {
           const captureFullCode = setupCode + '\n' + block.code.replace(/\b(const|let)\b/g, 'var') + '\n' + captureCode;
           eval(captureFullCode);
-        })(sharedScope.current);
+        })(sharedScope.current, tempConsole);
         
-        return { ...block, output: result, error: null, hasRun: true };
+        return { ...block, output: result, logs: capturedLogs, error: null, hasRun: true };
       } catch (error) {
-        return { ...block, output: null, error: error.message, hasRun: true };
+        return { ...block, output: null, logs: capturedLogs, error: error.message, hasRun: true };
       }
     }));
   };
@@ -305,7 +329,7 @@ const JavaScriptNotebook = () => {
               onRun: () => executeCode(block.id)
             }),
 
-            // Output
+            // Output & Logs
             block.hasRun &&
               React.createElement('div', { className: 'border-t border-gray-700 p-4 bg-gray-850' },
                 block.error ?
@@ -313,12 +337,21 @@ const JavaScriptNotebook = () => {
                     React.createElement('div', { className: 'font-semibold mb-1' }, 'Error:'),
                     block.error
                   ) :
-                  React.createElement('div', { className: 'text-green-400 font-mono text-sm' },
-                    React.createElement('div', { className: 'font-semibold mb-1 text-gray-400' }, 'Output:'),
-                    block.output === undefined ? 'undefined' :
-                    typeof block.output === 'object' ?
-                      JSON.stringify(block.output, null, 2) :
-                      String(block.output)
+                  React.createElement('div', { className: 'space-y-3' },
+                    // Logs section
+                    block.logs && block.logs.length > 0 && 
+                      React.createElement('div', { className: 'text-gray-300 font-mono text-sm' },
+                        React.createElement('div', { className: 'font-semibold mb-1 text-gray-500 text-xs uppercase' }, 'Console:'),
+                        block.logs.map((log, i) => React.createElement('div', { key: i, className: 'pl-2 border-l-2 border-gray-700' }, log))
+                      ),
+                    // Return Value section
+                    React.createElement('div', { className: 'text-green-400 font-mono text-sm' },
+                      React.createElement('div', { className: 'font-semibold mb-1 text-gray-500 text-xs uppercase' }, 'Return Value:'),
+                      block.output === undefined ? 'undefined' :
+                      typeof block.output === 'object' ?
+                        JSON.stringify(block.output, null, 2) :
+                        String(block.output)
+                    )
                   )
               )
           )
