@@ -6,6 +6,53 @@
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-javascript.min.js"></script>
+  <style>
+    .code-editor-container {
+      position: relative;
+      min-height: 150px;
+    }
+    .code-editor-textarea, .code-editor-highlight {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 1rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 0.875rem;
+      line-height: 1.25rem;
+      tab-size: 2;
+      border: none;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      overflow: hidden;
+    }
+    .code-editor-textarea {
+      background: transparent !important;
+      color: transparent !important;
+      caret-color: white;
+      z-index: 1;
+      resize: none;
+    }
+    .code-editor-textarea:focus {
+      outline: none;
+    }
+    .code-editor-highlight {
+      z-index: 0;
+      pointer-events: none;
+      background: #111827; /* gray-900 */
+    }
+    /* Prism overrides */
+    pre[class*="language-"] {
+      margin: 0 !important;
+      background: transparent !important;
+      padding: 0 !important;
+    }
+  </style>
 </head>
 <body>
   <div id="root"></div>
