@@ -242,57 +242,57 @@ const JavaScriptNotebook = () => {
   const runAllBlocks = () => {
     sharedScope.current = {};
     
-    // Process blocks sequentially to maintain proper scope
-    const updatedBlocks = prev.map(block => {
-      const capturedLogs = [];
-      const originalLog = console.log;
-      const tempConsole = {
-        log: (...args) => {
-          capturedLogs.push(args.map(arg => 
-            typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
-          ).join(' '));
-          originalLog(...args);
-        }
-      };
-
-      try {
-        // Extract all variable/function names that should be shared
-        const varNames = extractVariableNames(block.code);
-        
-        // Execute the code with access to shared scope
-        const result = (function(__sharedScope, console) {
-          // Import existing shared variables into this scope
-          for (let key in __sharedScope) {
-            try {
-              eval(`var ${key} = __sharedScope['${key}'];`);
-            } catch(e) {
-              // Variable might not be accessible
-            }
+    setBlocks(prev => {
+      // Process blocks sequentially to maintain proper scope
+      return prev.map(block => {
+        const capturedLogs = [];
+        const originalLog = console.log;
+        const tempConsole = {
+          log: (...args) => {
+            capturedLogs.push(args.map(arg => 
+              typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+            ).join(' '));
+            originalLog(...args);
           }
+        };
+
+        try {
+          // Extract all variable/function names that should be shared
+          const varNames = extractVariableNames(block.code);
           
-          // Execute user code (convert const/let to var for proper scoping)
-          const userCode = block.code.replace(/\b(const|let)\b/g, 'var');
-          const evalResult = eval(userCode);
-          
-          // Capture all defined variables/functions back to shared scope
-          varNames.forEach(name => {
-            try {
-              __sharedScope[name] = eval(name);
-            } catch(e) {
-              // Variable might not be defined yet
+          // Execute the code with access to shared scope
+          const result = (function(__sharedScope, console) {
+            // Import existing shared variables into this scope
+            for (let key in __sharedScope) {
+              try {
+                eval(`var ${key} = __sharedScope['${key}'];`);
+              } catch(e) {
+                // Variable might not be accessible
+              }
             }
-          });
+            
+            // Execute user code (convert const/let to var for proper scoping)
+            const userCode = block.code.replace(/\b(const|let)\b/g, 'var');
+            const evalResult = eval(userCode);
+            
+            // Capture all defined variables/functions back to shared scope
+            varNames.forEach(name => {
+              try {
+                __sharedScope[name] = eval(name);
+              } catch(e) {
+                // Variable might not be defined yet
+              }
+            });
+            
+            return evalResult;
+          })(sharedScope.current, tempConsole);
           
-          return evalResult;
-        })(sharedScope.current, tempConsole);
-        
-        return { ...block, output: result, logs: capturedLogs, error: null, hasRun: true };
-      } catch (error) {
-        return { ...block, output: null, logs: capturedLogs, error: error.message, hasRun: true };
-      }
+          return { ...block, output: result, logs: capturedLogs, error: null, hasRun: true };
+        } catch (error) {
+          return { ...block, output: null, logs: capturedLogs, error: error.message, hasRun: true };
+        }
+      });
     });
-    
-    return updatedBlocks;
   };
 
   return React.createElement('div', { className: 'min-h-screen bg-gray-900 text-gray-100 p-6' }, 
