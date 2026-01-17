@@ -112,18 +112,38 @@ const CodeEditor = ({ value, onChange, onRun }) => {
 
 const JavaScriptNotebook = () => {
   const [blocks, setBlocks] = useState([
-    { id: 1, code: '// Write your JavaScript code here\nconst result = 2 + 2;\nconsole.log("Hello from console!");\nresult;', output: null, logs: [], error: null, hasRun: false, execCount: 0 }
+    { id: 1, code: '// Define a function in Block 1\nfunction greet(name) {\n  return `Hello, ${name}!`;\n}\n\n// Test the function\ngreet("World");', output: null, logs: [], error: null, hasRun: false, execCount: 0 },
+    { id: 2, code: '// Use the function from Block 1 in Block 2\nconst message = greet("JavaScript Notebook");\nconsole.log("Function works across blocks!");\nmessage;', output: null, logs: [], error: null, hasRun: false, execCount: 0 }
   ]);
   const sharedScope = useRef({});
-  const nextId = useRef(2);
+  const nextId = useRef(3);
 
   const extractVariableNames = (code) => {
-    const matches = code.matchAll(/(?:const|let|var)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)/g);
+    // Extract const/let/var declarations
+    const varMatches = code.matchAll(/(?:const|let|var)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)/g);
+    // Extract function declarations
+    const funcMatches = code.matchAll(/function\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\(/g);
+    // Extract arrow function assignments
+    const arrowMatches = code.matchAll(/([a-zA-Z_$][a-zA-Z0-9_$]*)\s*=\s*(?:async\s*)?\(/g);
+    
     const names = [];
-    for (const match of matches) {
+    
+    // Add variable names
+    for (const match of varMatches) {
       names.push(match[1]);
     }
-    return names;
+    
+    // Add function names
+    for (const match of funcMatches) {
+      names.push(match[1]);
+    }
+    
+    // Add arrow function names
+    for (const match of arrowMatches) {
+      names.push(match[1]);
+    }
+    
+    return [...new Set(names)]; // Remove duplicates
   };
 
   const executeCode = (blockId) => {
@@ -150,25 +170,33 @@ const JavaScriptNotebook = () => {
           const result = (function(console) {
             // Import all shared variables into this scope
             for (let key in sharedScope.current) {
-              eval(`var ${key} = sharedScope.current['${key}'];`);
+              try {
+                eval(`var ${key} = sharedScope.current['${key}'];`);
+              } catch(e) {
+                // Variable might not be accessible
+              }
             }
             
             // Execute user code (with const/let converted to var)
             const userCode = block.code.replace(/\b(const|let)\b/g, 'var');
             const evalResult = eval(userCode);
             
-            // Capture all variables back to shared scope
+            // Capture all variables/functions back to shared scope
             newVars.forEach(name => {
               try {
                 sharedScope.current[name] = eval(name);
-              } catch(e) {}
+              } catch(e) {
+                // Variable/function might not be defined yet
+              }
             });
             
             // Update modified variables
             allVars.forEach(key => {
               try {
                 sharedScope.current[key] = eval(key);
-              } catch(e) {}
+              } catch(e) {
+                // Variable might not be accessible
+              }
             });
             
             return evalResult;
@@ -213,7 +241,9 @@ const JavaScriptNotebook = () => {
 
   const runAllBlocks = () => {
     sharedScope.current = {};
-    setBlocks(prev => prev.map(block => {
+    
+    // Process blocks sequentially to maintain proper scope
+    const updatedBlocks = prev.map(block => {
       const capturedLogs = [];
       const originalLog = console.log;
       const tempConsole = {
@@ -226,32 +256,43 @@ const JavaScriptNotebook = () => {
       };
 
       try {
-        const setupCode = Object.keys(sharedScope.current)
-          .map(key => `var ${key} = __sharedScope['${key}'];`)
-          .join('\n');
-        
+        // Extract all variable/function names that should be shared
         const varNames = extractVariableNames(block.code);
-        const captureCode = varNames
-          .map(name => `try { __sharedScope['${name}'] = ${name}; } catch(e) {}`)
-          .join('\n');
         
+        // Execute the code with access to shared scope
         const result = (function(__sharedScope, console) {
-          const code = setupCode + '\n' + block.code;
-          const wrappedCode = code.replace(/\b(const|let)\b/g, 'var');
-          return eval(wrappedCode);
-        })(sharedScope.current, tempConsole);
-        
-        // Capture variables
-        (function(__sharedScope, console) {
-          const captureFullCode = setupCode + '\n' + block.code.replace(/\b(const|let)\b/g, 'var') + '\n' + captureCode;
-          eval(captureFullCode);
+          // Import existing shared variables into this scope
+          for (let key in __sharedScope) {
+            try {
+              eval(`var ${key} = __sharedScope['${key}'];`);
+            } catch(e) {
+              // Variable might not be accessible
+            }
+          }
+          
+          // Execute user code (convert const/let to var for proper scoping)
+          const userCode = block.code.replace(/\b(const|let)\b/g, 'var');
+          const evalResult = eval(userCode);
+          
+          // Capture all defined variables/functions back to shared scope
+          varNames.forEach(name => {
+            try {
+              __sharedScope[name] = eval(name);
+            } catch(e) {
+              // Variable might not be defined yet
+            }
+          });
+          
+          return evalResult;
         })(sharedScope.current, tempConsole);
         
         return { ...block, output: result, logs: capturedLogs, error: null, hasRun: true };
       } catch (error) {
         return { ...block, output: null, logs: capturedLogs, error: error.message, hasRun: true };
       }
-    }));
+    });
+    
+    return updatedBlocks;
   };
 
   return React.createElement('div', { className: 'min-h-screen bg-gray-900 text-gray-100 p-6' }, 
@@ -373,10 +414,10 @@ const JavaScriptNotebook = () => {
         React.createElement('ul', { className: 'list-disc list-inside space-y-1' },
           React.createElement('li', null, 'Write JavaScript code in each block and click "Run" to execute'),
           React.createElement('li', null, 'Press ', React.createElement('kbd', { className: 'px-1 bg-gray-700 rounded text-gray-200' }, 'Cmd/Ctrl + Enter'), ' to run the current block'),
-          React.createElement('li', null, 'Variables declared with const/let/var are shared across blocks'),
+          React.createElement('li', null, 'Variables and functions declared with const/let/var/function are shared across blocks'),
           React.createElement('li', null, 'The last expression in each block is returned as output'),
           React.createElement('li', null, 'Use "Run All" to execute all blocks in sequence'),
-          React.createElement('li', null, 'Try: Define a variable in one block and use it in the next!')
+          React.createElement('li', null, 'Try: Define a function in one block and call it in the next!')
         ),
         
         React.createElement('div', { className: 'mt-4 p-3 bg-gray-900 rounded border border-gray-600' },
@@ -384,15 +425,15 @@ const JavaScriptNotebook = () => {
           React.createElement('div', { className: 'font-mono text-xs space-y-2' },
             React.createElement('div', null,
               React.createElement('span', { className: 'text-gray-500' }, 'Block 1:'),
-              React.createElement('span', { className: 'text-blue-300' }, ' const x = 10;')
+              React.createElement('span', { className: 'text-blue-300' }, ' function greet(name) { return `Hi, ${name}!`; }')
             ),
             React.createElement('div', null,
               React.createElement('span', { className: 'text-gray-500' }, 'Block 2:'),
-              React.createElement('span', { className: 'text-blue-300' }, ' const y = x * 2; y;')
+              React.createElement('span', { className: 'text-blue-300' }, ' greet("World");')
             ),
             React.createElement('div', null,
               React.createElement('span', { className: 'text-gray-500' }, 'Block 3:'),
-              React.createElement('span', { className: 'text-blue-300' }, ' x + y;')
+              React.createElement('span', { className: 'text-blue-300' }, ' const msg = greet("JS"); msg;')
             )
           )
         )
